@@ -4,6 +4,14 @@ import torch
 import matplotlib
 import matplotlib.pyplot as plt
 
+from torch.utils.data import Dataset
+from torchvision.transforms import ToTensor
+import tqdm
+
+from data_utils import get_CIFAR10_data
+
+from PIL import Image
+
 #------------------------------------------------------------------------------#
 # C4                                                                           #
 # Implements the *group law* of the group C_4                                  #
@@ -234,8 +242,111 @@ def rotate_p4(y: torch.Tensor, r: int) -> torch.Tensor:
   return y_out
 
 #------------------------------------------------------------------------------#
+# LiftingConv2d                                                                #
+#------------------------------------------------------------------------------#
+
+class LiftingConv2d(torch.nn.Module):
+
+  def __init__(self, in_channels: int, out_channels: int, kernel_size: int, padding: int = 0, bias: bool = True):
+    
+    super(LiftingConv2d, self).__init__()
+
+    self.kernel_size = kernel_size
+    self.stride = 1
+    self.dilation = 1
+    self.padding = padding
+    self.out_channels = out_channels
+    self.in_channels = in_channels
+    
+    # In this block you need to create a tensor which stores the learnable filters
+    # Recall that this layer should have `out_channels x in_channels` different learnable filters, each of shape `kernel_size x kernel_size`
+    # During the forward pass, you will build the bigger filter of shape `out_channels x 4 x in_channels x kernel_size x kernel_size` by rotating 4 times 
+    # the learnable filters in `self.weight`
+    
+    # initialize the weights with some random values from a normal distribution with std = 1 / sqrt(out_channels * in_channels)
+
+    self.weight = None
+
+    ### BEGIN SOLUTION
+    self.weight = torch.nn.Parameter(torch.randn(out_channels * in_channels * kernel_size**2) / np.sqrt(out_channels * in_channels), requires_grad=True)
+    
+    ### END SOLUTION
+
+    # This time, you also need to build the bias
+    # The bias is shared over the 4 rotations
+    # In total, the bias has `out_channels` learnable parameters, one for each independent output
+    # In the forward pass, you need to convert this bias into an "expanded" bias by repeating each entry `4` times
+    
+    self.bias = None
+    if bias:
+    ### BEGIN SOLUTION
+      self.bias = torch.nn.Parameter(torch.zeros(out_channels), requires_grad=True)
+
+    ### END SOLUTION  
+  
+  def build_filter(self) ->torch.Tensor:
+    # using the tensors of learnable parameters, build 
+    # - the `out_channels x 4 x in_channels x kernel_size x kernel_size` filter
+    # - the `out_channels x 4` bias
+    
+    _filter = None
+    _bias = None
+
+    # Make sure that the filter and the bias tensors are on the same device of `self.weight` and `self.bias`
+
+    # First build the filter
+    # Recall that `_filter[:, i, :, :, :]` should contain the learnable filter rotated `i` times
+
+    ### BEGIN SOLUTION
+    device = self.weight.device
+    _filter = torch.ones(self.out_channels, 4, self.in_channels, self.kernel_size, self.kernel_size, device=device)
+    _filter[:, 0, :, :, :] = self.weight.reshape(self.out_channels, self.in_channels, self.kernel_size, self.kernel_size)
+    _filter[:, 1, :, :, :] = rotate(_filter[:, 0, :, :], 1)
+    _filter[:, 2, :, :, :] = rotate(_filter[:, 0, :, :], 2)
+    _filter[:, 3, :, :, :] = rotate(_filter[:, 0, :, :], 3)
+
+    ### END SOLUTION
+
+    # Now build the bias
+    # Recall that `_bias[:, i]` should contain a copy of the learnable bias for each `i=0,1,2,3`
+
+    if self.bias is not None:
+    ### BEGIN SOLUTION
+      device = self.bias.device
+      _bias = torch.ones(self.out_channels, 4, device=device)
+      # _bias = torch.tile(self.bias.reshape(self.out_channels, 1), (1,4)).to(device)
+
+
+    ### END SOLUTION
+    else:
+      _bias = None
+
+    return _filter, _bias
+
+  def forward(self, x: torch.Tensor) -> torch.Tensor:
+
+    _filter, _bias = self.build_filter()
+    
+    assert _bias.shape == (self.out_channels, 4)
+    assert _filter.shape == (self.out_channels, 4, self.in_channels, self.kernel_size, self.kernel_size)
+
+    # to be able to use torch.conv2d, we need to reshape the filter and bias to stack together all filters
+    _filter = _filter.reshape(self.out_channels * 4, self.in_channels, self.kernel_size, self.kernel_size)
+    _bias = _bias.reshape(self.out_channels * 4)
+
+    out = torch.conv2d(x, _filter,
+                       stride=self.stride,
+                       padding=self.padding,
+                       dilation=self.dilation,
+                       bias=_bias)
+    
+    # `out` has now shape `batch_size x out_channels*4 x W x H`
+    # we need to reshape it to `batch_size x out_channels x 4 x W x H` to have the shape we expect
+
+    return out.view(-1, self.out_channels, 4, out.shape[-2], out.shape[-1])
+
+#------------------------------------------------------------------------------#
 # GroupConv2d                                                                  #
-# Testing all the testing code from the entire notebook in one go              #
 #------------------------------------------------------------------------------#
 
 class GroupConv2d(torch.nn.Module):
@@ -352,156 +463,150 @@ class GroupConv2d(torch.nn.Module):
 
     return out.view(-1, self.out_channels, 4, out.shape[-2], out.shape[-1])
 
+#------------------------------------------------------------------------------#
+# C4CNN                                                                        #
+#------------------------------------------------------------------------------#
+
+# The network performs a first lifting layer with  8  output channels and is 
+# followed by  4  group convolution with, respectively,  16 ,  32 ,  64  and  
+# 128  output channels. All convolutions have kernel size  3 , padding  1  and 
+# stride  1  and should use the bias. All convolutions are followed by 
+# torch.nn.MaxPool3d and torch.nn.ReLU. Note that we use MaxPool3d rather than 
+# MaxPool2d since our feature tensors have  5  dimensions (there is an 
+# additional dimension of size  4 ). In all pooling layers, we will use a kernel
+#  of size  (1,3,3) , a stride of  (1,2,2)  and a padding of  (0,1,1). This 
+# ensures pooling is done only on the spatial dimensions, while the rotational 
+# dimension is preserved. The last pooling layer, however, will also pool over 
+# the rotational dimension so it will use a kernel of size  (4,3,3) , stride  
+# (1,1,1)  and padding  (0,0,0) .
+
+class C4CNN(torch.nn.Module):
+  def __init__(self, n_classes=10):
+
+    super(C4CNN, self).__init__()
+
+    channels = [8, 16, 32, 64, 128]
+
+    lifting_layer = LiftingConv2d(in_channels=3, out_channels=channels[0], kernel_size=3, padding=1, bias=True)
+    conv1 = GroupConv2d(in_channels=channels[0], out_channels=channels[1], kernel_size=3, padding=1, bias=True)
+    conv2 = GroupConv2d(in_channels=channels[1], out_channels=channels[2], kernel_size=3, padding=1, bias=True)
+    conv3 = GroupConv2d(in_channels=channels[2], out_channels=channels[3], kernel_size=3, padding=1, bias=True)
+    conv4 = GroupConv2d(in_channels=channels[3], out_channels=channels[4], kernel_size=3, padding=1, bias=True)
+
+    maxpool_conv = torch.nn.MaxPool3d(kernel_size=(1,3,3), stride=(1,2,2), padding=(0,1,1))
+    relu = torch.nn.ReLU()
+    maxpool_out = torch.nn.MaxPool3d(kernel_size=(4,3,3), stride=(1,1,1), padding=(0,0,0))
+
+    self.output_layer = torch.nn.Linear(channels[4], 10)
+
+    self.model = torch.nn.Sequential(lifting_layer, maxpool_conv, relu,
+                                      conv1, maxpool_conv, relu,
+                                      conv2, maxpool_conv, relu,
+                                      conv3, maxpool_conv, relu,
+                                      conv4, maxpool_out, relu)
+
+  def forward(self, input: torch.Tensor):
+    out = self.model(input)
+    out = self.output_layer(torch.flatten(out, start_dim=1))
+    return out
 
 #------------------------------------------------------------------------------#
-# testing()                                                                    #
-# Testing all the testing code from the entire notebook in one go              #
+# CIFAR_Dataset()
 #------------------------------------------------------------------------------#
+
+class CIFAR_Dataset(Dataset):
+
+    def __init__(self, mode, transform=None):
+        assert mode in ['train', 'test']
+
+        self.transform = transform
+
+        X_train, y_train, X_test, y_test = get_CIFAR10_data()
+
+        if mode == "train":
+            self.images = X_train
+            self.labels = y_train
+        else:
+            self.images = X_test
+            self.labels = y_test
+
+        self.num_samples = len(self.labels)
+        self.images = np.transpose(self.images, (3, 0, 1, 2))  # Change to (N, H, W, C) format
+        self.images = self.images.astype(np.float32)
+
+        # Pad the images to have shape 33 x 33
+        self.images = np.pad(self.images, pad_width=((0, 0), (1, 0), (1, 0), (0, 0)), mode='edge')
+
+        assert self.images.shape == (self.labels.shape[0], 33, 33, 3)
+
+    def __getitem__(self, index):
+        image, label = self.images[index], self.labels[index]
+        image = Image.fromarray(np.uint8(image * 255))
+        if self.transform is not None:
+            image = self.transform(image)
+        return image, label
+
+    def __len__(self):
+        return len(self.labels)
+
+device = 'cpu'
+train_set = CIFAR_Dataset('train', ToTensor())
+test_set = CIFAR_Dataset('test', ToTensor())
+
+def train_model(model: torch.nn.Module):
+
+  train_loader = torch.utils.data.DataLoader(train_set, batch_size=64)
+  loss_function = torch.nn.CrossEntropyLoss()
+  optimizer = torch.optim.Adam(model.parameters(), lr=5e-5, weight_decay=1e-5)
+
+  model.to(device)
+  model.train()
+
+  for epoch in tqdm.tqdm(range(15)):
     
-def testing():
+    for i, (x, t) in enumerate(train_loader):
 
-    # C4 Testing
-    assert C4.product(1, 3) == 0
-    assert C4.product(0, 0) == 0
-    assert C4.product(2, 3) == 1
-    assert C4.inverse(0) == 0
-    assert C4.inverse(1) == 3
+        x = x.to(device)
+        t = t.to(device)
 
-    # D4 Testing
-    e = (0, 0) # the identity element
-    f = (1, 0) # the horizontal reflection
-    r = (0, 1) # the rotation by 90 degrees
+        y = model(x)
 
-    # Let's verify that the implementation is consistent with the instructions given
-    assert D4.product(e, e) == e
-    assert D4.product(f, f) == e
-    assert D4.product(f, r) == D4.product(D4.inverse(r), f)
+        loss = loss_function(y, t)
+        # print(loss.item())
 
-    # Let's verify that the implementation satisfies the group axioms
-    a = (1, 2)
-    b = (0, 3)
-    c = (1, 1)
+        loss.backward()
 
-    assert D4.product(a, e) == a
-    assert D4.product(e, a) == a
-    assert D4.product(b, D4.inverse(b)) == e
-    assert D4.product(D4.inverse(b), b) == e
+        optimizer.step()
+        optimizer.zero_grad()
+  return model
 
-    assert D4.product(D4.product(a, b), c) == D4.product(a, D4.product(b, c))
+def test_model(model: torch.nn.Module):
+  test_loader = torch.utils.data.DataLoader(test_set, batch_size=64)
+  total = 0
+  correct = 0
+  with torch.no_grad():
+      model.eval()
+      for i, (x, t) in tqdm.tqdm(enumerate(test_loader)):
 
-    # Let's check if the layer is really equivariant
-    in_channels = 5
-    out_channels = 10
-    batchsize = 6
-    S = 33
+          x = x.to(device)
+          t = t.to(device)
+          
+          y = model(x)
 
-    layer = IsotropicConv2d(in_channels=in_channels, out_channels=out_channels, bias=True)
-    layer.eval()
+          _, prediction = torch.max(y.data, 1)
+          total += t.shape[0]
+          correct += (prediction == t).sum().item()
+  accuracy = correct/total*100.
 
-    x = torch.randn(batchsize, in_channels, S, S)
-    gx = rotate(x, 1)
+  return accuracy
 
+def train():
 
-    psi_x = layer(x)
-    psi_gx = layer(gx)
-
-    g_psi_x = rotate(psi_x, 1)
-
-    assert psi_x.shape == g_psi_x.shape
-    assert psi_x.shape == (batchsize, out_channels, S, S)
-
-    # check the model is giving meaningful outputs
-    assert not torch.allclose(psi_x, torch.zeros_like(psi_x), atol=1e-4, rtol=1e-4)
-
-    # check equivariance
-    assert torch.allclose(psi_gx, g_psi_x, atol=1e-6, rtol=1e-6)
-
-    # check the model has the right number of parameters
-    assert layer.weight.numel() == in_channels * out_channels * 2
-
-    # Let's test a rotation by r=1
-    y = torch.randn(1, 1, 4, 33, 33)**2
-
-    ry = rotate_p4(y, 1)
-
-    fig, axes = plt.subplots(1, 4, sharex=True, sharey=True, squeeze=True, figsize=(16, 4))
-    for i in range(4):
-        axes[i].imshow(y[0, 0, i].numpy())
-    fig.suptitle('Original y')
-    # plt.show()
-
-    fig, axes = plt.subplots(1, 4, sharex=True, sharey=True, squeeze=True, figsize=(16, 4))
-    for i in range(4):
-        axes[i].imshow(ry[0, 0, i].numpy())
-    fig.suptitle('Rotated y')
-    # plt.show()
-
-
-    # check that the images are actually rotated:
-    for _ in range(10):
-        p = np.random.randint(0, 33, size=2)
-        s = np.random.randint(0, 4)
-
-        # compute r^-1 s
-        _rs = C4.product(C4.inverse(1), s)
-        
-        # compute r^-1 p
-        # note that the rotation is around the central pixel (16, 16)
-        # A rotation by r^-1 = -90 degrees maps (X, Y) -> (Y, -X)
-        center = np.array([16, 16])
-        # center the point
-        centered_p = p - center
-        # rotate round the center
-        rotated_p = np.array([centered_p[1], -centered_p[0]])
-        # shift the point back
-        _rp = rotated_p + center
-
-        # Finally check that [r.y](p, s) = y(r^-1 p, r^-1 s)
-
-        # However, in a machine, an image is stored with the coordinates (H-1-Y, X) rather than the usual (X, Y), where H is the height of the image;
-        # we need to take this into account
-        assert torch.isclose(
-            ry[..., s, 32-p[1], p[0]],
-            y[..., _rs, 32-_rp[1], _rp[0]],
-            atol=1e-5, rtol=1e-5
-        )
-
-    # Let's check if the layer is really equivariant
-
-    in_channels = 5
-    out_channels = 10
-    kernel_size = 3
-    batchsize = 4
-    S = 33
-
-    layer = GroupConv2d(in_channels=in_channels, out_channels=out_channels, kernel_size = kernel_size, padding=1, bias=True)
-    layer.eval()
-
-    x = torch.randn(batchsize, in_channels, 4, S, S)**2
-    # the input image belongs to the space Y, so this time we use the new action to rotate it
-    gx = rotate_p4(x, 1)
-
-    # compute the output
-    psi_x = layer(x)
-    psi_gx = layer(gx)
-
-    # the output is a function in the space Y, so we need to use the new action to rotate it
-    g_psi_x = rotate_p4(psi_x, 1)
-
-    assert psi_x.shape == g_psi_x.shape
-    assert psi_x.shape == (batchsize, out_channels, 4, S, S)
-
-    # check the model is giving meaningful outputs
-    assert not torch.allclose(psi_x, torch.zeros_like(psi_x), atol=1e-4, rtol=1e-4)
-
-    # check equivariance
-    assert torch.allclose(psi_gx, g_psi_x, atol=1e-5, rtol=1e-5)
-
-    # check the model has the right number of parameters
-    assert layer.weight.numel() == in_channels * out_channels * 4* kernel_size**2
-    assert layer.bias.numel() == out_channels
-
-    print("Passed all tests!")
+  model = C4CNN()
+  
+  model = train_model(model)
+  acc = test_model(model)
+  print(f'Test Accuracy: {acc :.3f}')
 
 if __name__ == '__main__':
-    testing()
+  train()
