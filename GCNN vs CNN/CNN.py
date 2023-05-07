@@ -1,3 +1,7 @@
+#------------------------------------------------------------------------------#
+# Authors: Max Chan and Sophie Chen                                            #
+#------------------------------------------------------------------------------#
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -98,12 +102,12 @@ def train_model(model: torch.nn.Module):
 
   train_loader = torch.utils.data.DataLoader(train_set, batch_size=64)
   loss_function = torch.nn.CrossEntropyLoss()
-  optimizer = torch.optim.Adam(model.parameters(), lr=7e-5, weight_decay=5e-5)
+  optimizer = torch.optim.Adam(model.parameters(), lr=7e-4, weight_decay=5e-5)
 
   model.to(device)
   model.train()
 
-  for epoch in tqdm.tqdm(range(75)):
+  for epoch in tqdm.tqdm(range(500)):
     
     for i, (x, t) in enumerate(train_loader):
 
@@ -141,9 +145,12 @@ def test_model(model: torch.nn.Module):
 
   return accuracy
 
-def train_CNN():
+def train_CNN(model_path=None):
 
   model = CNN()
+
+  if model_path is not None:
+        model.load_state_dict(torch.load(model_path))
   
   model = train_model(model)
   torch.save(model.state_dict(), 'CNN_model.pth')

@@ -1,3 +1,9 @@
+#------------------------------------------------------------------------------#
+# Authors: Max Chan and Sophie Chen                                            #
+# This code is largely copied from the COS 429 Assignment 3 code, with         #
+# modifications for Data Augmentation.                                         #
+#------------------------------------------------------------------------------#
+
 import os, pickle
 import numpy as np
 import random
