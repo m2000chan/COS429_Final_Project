@@ -1,5 +1,6 @@
 #------------------------------------------------------------------------------#
 # Authors: Max Chan and Sophie Chen                                            #
+# This implementation is largely based on a notebook from Gabriele Cesa        #
 #------------------------------------------------------------------------------#
 
 import numpy as np
