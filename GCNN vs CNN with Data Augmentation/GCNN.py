@@ -562,7 +562,7 @@ def train_model(model: torch.nn.Module):
   model.to(device)
   model.train()
 
-  for epoch in tqdm.tqdm(range(2)):
+  for epoch in tqdm.tqdm(range(75)):
     
     for i, (x, t) in enumerate(train_loader):
 
@@ -604,5 +604,6 @@ def train_GCNN():
   model = C4CNN()
   
   model = train_model(model)
+  torch.save(model.state_dict(), 'GCNN_model.pth')
   acc = test_model(model)
   print(f'Test Accuracy of G-CNN: {acc :.3f}')

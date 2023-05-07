@@ -103,7 +103,7 @@ def train_model(model: torch.nn.Module):
   model.to(device)
   model.train()
 
-  for epoch in tqdm.tqdm(range(2)):
+  for epoch in tqdm.tqdm(range(75)):
     
     for i, (x, t) in enumerate(train_loader):
 
@@ -146,5 +146,6 @@ def train_CNN():
   model = CNN()
   
   model = train_model(model)
+  torch.save(model.state_dict(), 'CNN_model.pth')
   acc = test_model(model)
   print(f'Test Accuracy of CNN: {acc :.3f}')

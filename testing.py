@@ -1,15 +1,19 @@
-import importlib.util
 import os
 
-def import_from_file(module_name, file_path):
-    spec = importlib.util.spec_from_file_location(module_name, file_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+# Save the current working directory
+original_cwd = os.getcwd()
 
-if __name__ == '__main__':
-    gcnn_vs_cnn_module = import_from_file("gcnn_vs_cnn_testing", os.path.join("GCNN vs CNN", "testing.py"))
-    gcnn_vs_cnn_module.train()
+# Change the working directory to the "GCNN vs CNN" folder
+os.chdir("GCNN vs CNN")
 
-    gcnn_vs_cnn_da_module = import_from_file("gcnn_vs_cnn_da_testing", os.path.join("GCNN vs CNN with Data Augmentation", "testing.py"))
-    gcnn_vs_cnn_da_module.train_with_DA()
+# Execute the testing.py script
+os.system("python testing.py")
+
+# Restore the original working directory
+os.chdir(original_cwd)
+
+# Change the working directory to the "GCNN vs CNN" folder
+os.chdir("GCNN vs CNN with Data Augmentation")
+
+# Execute the testing.py script
+os.system("python testing.py")
