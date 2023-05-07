@@ -98,12 +98,12 @@ def train_model(model: torch.nn.Module):
 
   train_loader = torch.utils.data.DataLoader(train_set, batch_size=64)
   loss_function = torch.nn.CrossEntropyLoss()
-  optimizer = torch.optim.Adam(model.parameters(), lr=5e-5, weight_decay=1e-5)
+  optimizer = torch.optim.Adam(model.parameters(), lr=7e-5, weight_decay=5e-5)
 
   model.to(device)
   model.train()
 
-  for epoch in tqdm.tqdm(range(15)):
+  for epoch in tqdm.tqdm(range(2)):
     
     for i, (x, t) in enumerate(train_loader):
 
@@ -141,13 +141,10 @@ def test_model(model: torch.nn.Module):
 
   return accuracy
 
-def train():
+def train_CNN():
 
   model = CNN()
   
   model = train_model(model)
   acc = test_model(model)
-  print(f'Test Accuracy: {acc :.3f}')
-
-if __name__ == '__main__':
-  train()
+  print(f'Test Accuracy of CNN: {acc :.3f}')

@@ -103,7 +103,7 @@ def train_model(model: torch.nn.Module):
   model.to(device)
   model.train()
 
-  for epoch in tqdm.tqdm(range(100)):
+  for epoch in tqdm.tqdm(range(2)):
     
     for i, (x, t) in enumerate(train_loader):
 

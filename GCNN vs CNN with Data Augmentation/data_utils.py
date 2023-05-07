@@ -49,7 +49,7 @@ def load_CIFAR10(ROOT):
     return Xtr, Ytr, Xte, Yte
 
 
-def get_CIFAR10_data(cifar10_dir='./cifar-10-batches-py', num_training=50000, num_test=10000):
+def get_CIFAR10_data(cifar10_dir='../cifar-10-batches-py', num_training=50000, num_test=10000):
     """
     Load the CIFAR-10 dataset from disk and perform preprocessing to prepare
     it for training.
@@ -80,7 +80,8 @@ def get_CIFAR10_data(cifar10_dir='./cifar-10-batches-py', num_training=50000, nu
     y_train = y_train.astype(np.int64)
     y_test = y_test.astype(np.int64)
 
-    # Apply random rotations to the test dataset
+    # Apply random rotations to the training and test datasets
+    X_train, y_train = apply_random_rotations(X_train, y_train)
     X_test, y_test = apply_random_rotations(X_test, y_test)
 
     # # Print shapes
@@ -90,3 +91,4 @@ def get_CIFAR10_data(cifar10_dir='./cifar-10-batches-py', num_training=50000, nu
     # print('Test labels shape: ', y_test.shape)
     
     return X_train, y_train, X_test, y_test
+
