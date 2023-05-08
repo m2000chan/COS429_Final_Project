@@ -11,7 +11,7 @@ original_cwd = os.getcwd()
 os.chdir("GCNN vs CNN")
 
 # Execute the testing.py script
-os.system("python testing.py")
+os.system("python train.py")
 
 # Restore the original working directory
 os.chdir(original_cwd)
@@ -20,4 +20,4 @@ os.chdir(original_cwd)
 os.chdir("GCNN vs CNN with Data Augmentation")
 
 # Execute the testing.py script
-os.system("python testing.py")
+os.system("python train.py")
